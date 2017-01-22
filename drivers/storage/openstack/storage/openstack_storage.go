@@ -1,7 +1,12 @@
+// +build !libstorage_storage_driver libstorage_storage_driver_openstack
+
 package openstack
 
 import (
+	"fmt"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
 
 	gofig "github.com/akutz/gofig/types"
 	"github.com/akutz/goof"
@@ -212,6 +217,7 @@ func (d *driver) VolumeInspect(
 
 	fields := eff(goof.Fields{
 		"volumeId": volumeID,
+		"opts":     fmt.Sprintf("%#v", opts),
 	})
 
 	if volumeID == "" {
@@ -220,17 +226,18 @@ func (d *driver) VolumeInspect(
 
 	if d.clientBlockStoragev2 != nil {
 		volume, err := volumes.Get(d.clientBlockStoragev2, volumeID).Extract()
-
 		if err != nil {
 			return nil,
 				goof.WithFieldsE(fields, "error getting volume", err)
 		}
 
+		fields["volume"] = fmt.Sprintf("%#v", volume)
+		log.WithFields(fields).Debug("retrieved volume")
+
 		return translateVolume(volume, opts.Attachments), nil
 	}
 
 	volume, err := volumesv1.Get(d.clientBlockStorage, volumeID).Extract()
-
 	if err != nil {
 		return nil,
 			goof.WithFieldsE(fields, "error getting volume", err)
@@ -256,7 +263,7 @@ func translateVolumeV1(
 		}
 	}
 
-	return &types.Volume{
+	v := &types.Volume{
 		Name:             volume.Name,
 		ID:               volume.ID,
 		AvailabilityZone: volume.AvailabilityZone,
@@ -266,6 +273,14 @@ func translateVolumeV1(
 		Size:             int64(volume.Size),
 		Attachments:      attachments,
 	}
+
+	fields := eff(goof.Fields{
+		"translated_volume": fmt.Sprintf("%#v", v),
+	})
+
+	log.WithFields(fields).Debug("translated volume v1")
+
+	return v
 }
 
 func translateVolume(
@@ -285,7 +300,7 @@ func translateVolume(
 		}
 	}
 
-	return &types.Volume{
+	v := &types.Volume{
 		Name:             volume.Name,
 		ID:               volume.ID,
 		AvailabilityZone: volume.AvailabilityZone,
@@ -295,6 +310,14 @@ func translateVolume(
 		Size:             int64(volume.Size),
 		Attachments:      attachments,
 	}
+
+	fields := eff(goof.Fields{
+		"translated_volume": fmt.Sprintf("%#v", v),
+	})
+
+	log.WithFields(fields).Debug("translated volume")
+
+	return v
 }
 
 func (d *driver) SnapshotInspect(
@@ -400,6 +423,15 @@ func (d *driver) SnapshotRemove(
 func (d *driver) VolumeCreate(ctx types.Context, volumeName string,
 	opts *types.VolumeCreateOpts) (*types.Volume, error) {
 
+	// Initialize for logging
+	fields := map[string]interface{}{
+		"driverName": d.Name(),
+		"volumeName": volumeName,
+		"opts":       opts,
+	}
+
+	log.WithFields(fields).Debug("creating volume")
+
 	return d.createVolume(ctx, volumeName, "", "", opts)
 }
 
@@ -435,33 +467,31 @@ func (d *driver) createVolume(
 	volumeSourceID string,
 	snapshotID string,
 	opts *types.VolumeCreateOpts) (*types.Volume, error) {
-	volumeType := *opts.Type
-	IOPS := *opts.IOPS
-	size := *opts.Size
-	availabilityZone := *opts.AvailabilityZone
-
-	fields := eff(map[string]interface{}{
-		"volumeName":       volumeName,
-		"snapshotId":       snapshotID,
-		"volumeSourceId":   volumeSourceID,
-		"volumeType":       volumeType,
-		"iops":             IOPS,
-		"size":             size,
-		"availabilityZone": availabilityZone,
-	})
-
-	if availabilityZone == "" {
-		availabilityZone = d.availabilityZone
-	}
 
 	options := &volumes.CreateOpts{
-		Name:             volumeName,
-		Size:             int(size),
-		SnapshotID:       snapshotID,
-		VolumeType:       volumeType,
-		AvailabilityZone: availabilityZone,
-		SourceReplica:    volumeSourceID,
+		Name:          volumeName,
+		SnapshotID:    snapshotID,
+		SourceReplica: volumeSourceID,
 	}
+
+	if opts.Size != nil {
+		options.Size = int(*opts.Size)
+	}
+
+	if opts.Type != nil {
+		options.VolumeType = *opts.Type
+	}
+
+	if opts.AvailabilityZone != nil {
+		options.AvailabilityZone = *opts.AvailabilityZone
+	} else {
+		options.AvailabilityZone = d.availabilityZone
+	}
+
+	fields := eff(map[string]interface{}{
+		"options": options,
+	})
+
 	if d.clientBlockStoragev2 != nil {
 		volume, err := volumes.Create(d.clientBlockStoragev2, options).Extract()
 		if err != nil {
