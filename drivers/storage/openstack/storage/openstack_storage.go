@@ -3,10 +3,7 @@
 package openstack
 
 import (
-	"fmt"
 	"time"
-
-	log "github.com/Sirupsen/logrus"
 
 	gofig "github.com/akutz/gofig/types"
 	"github.com/akutz/goof"
@@ -217,7 +214,6 @@ func (d *driver) VolumeInspect(
 
 	fields := eff(goof.Fields{
 		"volumeId": volumeID,
-		"opts":     fmt.Sprintf("%#v", opts),
 	})
 
 	if volumeID == "" {
@@ -226,18 +222,17 @@ func (d *driver) VolumeInspect(
 
 	if d.clientBlockStoragev2 != nil {
 		volume, err := volumes.Get(d.clientBlockStoragev2, volumeID).Extract()
+
 		if err != nil {
 			return nil,
 				goof.WithFieldsE(fields, "error getting volume", err)
 		}
 
-		fields["volume"] = fmt.Sprintf("%#v", volume)
-		log.WithFields(fields).Debug("retrieved volume")
-
 		return translateVolume(volume, opts.Attachments), nil
 	}
 
 	volume, err := volumesv1.Get(d.clientBlockStorage, volumeID).Extract()
+
 	if err != nil {
 		return nil,
 			goof.WithFieldsE(fields, "error getting volume", err)
@@ -263,7 +258,7 @@ func translateVolumeV1(
 		}
 	}
 
-	v := &types.Volume{
+	return &types.Volume{
 		Name:             volume.Name,
 		ID:               volume.ID,
 		AvailabilityZone: volume.AvailabilityZone,
@@ -273,14 +268,6 @@ func translateVolumeV1(
 		Size:             int64(volume.Size),
 		Attachments:      attachments,
 	}
-
-	fields := eff(goof.Fields{
-		"translated_volume": fmt.Sprintf("%#v", v),
-	})
-
-	log.WithFields(fields).Debug("translated volume v1")
-
-	return v
 }
 
 func translateVolume(
@@ -300,7 +287,7 @@ func translateVolume(
 		}
 	}
 
-	v := &types.Volume{
+	return &types.Volume{
 		Name:             volume.Name,
 		ID:               volume.ID,
 		AvailabilityZone: volume.AvailabilityZone,
@@ -310,14 +297,6 @@ func translateVolume(
 		Size:             int64(volume.Size),
 		Attachments:      attachments,
 	}
-
-	fields := eff(goof.Fields{
-		"translated_volume": fmt.Sprintf("%#v", v),
-	})
-
-	log.WithFields(fields).Debug("translated volume")
-
-	return v
 }
 
 func (d *driver) SnapshotInspect(
@@ -422,15 +401,6 @@ func (d *driver) SnapshotRemove(
 
 func (d *driver) VolumeCreate(ctx types.Context, volumeName string,
 	opts *types.VolumeCreateOpts) (*types.Volume, error) {
-
-	// Initialize for logging
-	fields := map[string]interface{}{
-		"driverName": d.Name(),
-		"volumeName": volumeName,
-		"opts":       opts,
-	}
-
-	log.WithFields(fields).Debug("creating volume")
 
 	return d.createVolume(ctx, volumeName, "", "", opts)
 }
